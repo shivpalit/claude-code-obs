@@ -190,6 +190,34 @@ def get_session(project_slug: str, session_id: str) -> dict:
     }
 
 
+def aggregate_stats(project_slug: str) -> dict:
+    sessions = list_sessions(project_slug)
+    total_tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    total_cost = 0.0
+    total_tool_calls = 0
+    tool_totals = defaultdict(int)
+    total_duration = 0.0
+
+    for s in sessions:
+        for k in total_tokens:
+            total_tokens[k] += s.get("tokens", {}).get(k, 0)
+        total_cost += s.get("estimated_cost_usd", 0)
+        total_tool_calls += s.get("tool_calls", 0)
+        for tool, count in s.get("tools_used", {}).items():
+            tool_totals[tool] += count
+        total_duration += s.get("duration_mins") or 0
+
+    return {
+        "project": project_slug,
+        "session_count": len(sessions),
+        "total_duration_mins": round(total_duration, 1),
+        "tokens": total_tokens,
+        "estimated_cost_usd": round(total_cost, 4),
+        "total_tool_calls": total_tool_calls,
+        "tools_used": dict(sorted(tool_totals.items(), key=lambda x: -x[1])),
+    }
+
+
 def get_session_messages(project_slug: str, session_id: str) -> list[dict]:
     path = PROJECTS_DIR / project_slug / f"{session_id}.jsonl"
     if not path.exists():

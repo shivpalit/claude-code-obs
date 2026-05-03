@@ -1,3 +1,3 @@
-from .core import list_projects, list_sessions, get_session, get_session_messages
+from .core import list_projects, list_sessions, get_session, get_session_messages, aggregate_stats
 
-__all__ = ["list_projects", "list_sessions", "get_session", "get_session_messages"]
+__all__ = ["list_projects", "list_sessions", "get_session", "get_session_messages", "aggregate_stats"]
