@@ -190,6 +190,18 @@ def get_session(project_slug: str, session_id: str) -> dict:
     }
 
 
+def find_sessions(project_slug: str, query: str) -> list[dict]:
+    query = query.lower()
+    sessions = list_sessions(project_slug)
+    results = []
+    for s in sessions:
+        title = (s.get("title") or "").lower()
+        first = (s.get("first_user_message") or "").lower()
+        if query in title or query in first:
+            results.append(s)
+    return results
+
+
 def aggregate_stats(project_slug: str) -> dict:
     sessions = list_sessions(project_slug)
     total_tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
