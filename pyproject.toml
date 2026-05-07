@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-code-obs"
+version = "0.1.0"
+description = "Claude Code session observability — CLI, Python API, and Streamlit dashboard"
+requires-python = ">=3.11"
+
+[project.scripts]
+claude-obs = "claude_obs.cli:main"
