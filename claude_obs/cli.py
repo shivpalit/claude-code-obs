@@ -1,5 +1,6 @@
 import argparse
 import json
+import textwrap
 
 from .core import (
     aggregate_stats,
@@ -11,8 +12,32 @@ from .core import (
 )
 
 
+def _fmt_table(rows: list[dict], cols: list[str]) -> str:
+    widths = {c: len(c) for c in cols}
+    for row in rows:
+        for c in cols:
+            widths[c] = max(widths[c], len(str(row.get(c, "") or "")))
+    header = "  ".join(c.ljust(widths[c]) for c in cols)
+    sep = "  ".join("-" * widths[c] for c in cols)
+    lines = [header, sep]
+    for row in rows:
+        lines.append("  ".join(str(row.get(c, "") or "").ljust(widths[c]) for c in cols))
+    return "\n".join(lines)
+
+
+def _output(data, fmt: str, cols: list[str] | None = None):
+    if fmt == "json":
+        print(json.dumps(data, indent=2))
+    else:
+        if isinstance(data, list) and cols:
+            print(_fmt_table(data, cols))
+        else:
+            print(json.dumps(data, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(prog="claude-obs", description="Claude Code session observability")
+    parser.add_argument("--output", choices=["json", "table"], default="json", help="Output format")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("projects", help="List all projects")
@@ -20,6 +45,7 @@ def main():
     sess = sub.add_parser("sessions", help="List sessions for a project")
     sess.add_argument("--project", default=None)
     sess.add_argument("--sort", choices=["created", "last_message"], default="last_message")
+    sess.add_argument("--limit", type=int, default=None)
 
     detail = sub.add_parser("session", help="Detail for one session")
     detail.add_argument("session_id", nargs="?", default=None)
@@ -35,12 +61,17 @@ def main():
 
     args = parser.parse_args()
     slug = getattr(args, "project", None) or current_project_slug()
+    fmt = args.output
 
     if args.command == "projects":
-        print(json.dumps(list_projects(), indent=2))
+        data = list_projects()
+        _output(data, fmt, cols=["slug", "session_count", "last_active"])
 
     elif args.command == "sessions":
-        print(json.dumps(list_sessions(slug, sort=args.sort), indent=2))
+        data = list_sessions(slug, sort=args.sort)
+        if args.limit:
+            data = data[:args.limit]
+        _output(data, fmt, cols=["session_id", "title", "started_at", "duration_mins", "tool_calls", "estimated_cost_usd"])
 
     elif args.command == "session":
         if args.latest:
@@ -50,13 +81,14 @@ def main():
             session_id = args.session_id
         else:
             parser.error("session requires a session_id or --latest")
-        print(json.dumps(get_session(slug, session_id), indent=2))
+        _output(get_session(slug, session_id), fmt)
 
     elif args.command == "stats":
-        print(json.dumps(aggregate_stats(slug), indent=2))
+        _output(aggregate_stats(slug), fmt)
 
     elif args.command == "search":
-        print(json.dumps(find_sessions(slug, args.query), indent=2))
+        data = find_sessions(slug, args.query)
+        _output(data, fmt, cols=["session_id", "title", "started_at", "estimated_cost_usd"])
 
 
 if __name__ == "__main__":
