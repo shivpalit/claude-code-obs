@@ -36,28 +36,31 @@ def _output(data, fmt: str, cols: list[str] | None = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="claude-obs", description="Claude Code session observability")
-    parser.add_argument("--output", choices=["json", "table"], default="json", help="Output format")
+    parser = argparse.ArgumentParser(
+        prog="claude-obs",
+        description="Claude Code session observability — inspect token usage, costs, and tool patterns",
+    )
+    parser.add_argument("--output", choices=["json", "table"], default="json", help="Output format (default: json)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("projects", help="List all projects")
+    sub.add_parser("projects", help="List all Claude Code projects with session counts and last activity")
 
     sess = sub.add_parser("sessions", help="List sessions for a project")
-    sess.add_argument("--project", default=None)
-    sess.add_argument("--sort", choices=["created", "last_message"], default="last_message")
-    sess.add_argument("--limit", type=int, default=None)
+    sess.add_argument("--project", default=None, help="Project slug (use --project=<slug> if slug starts with -)")
+    sess.add_argument("--sort", choices=["created", "last_message"], default="last_message", help="Sort order (default: last_message)")
+    sess.add_argument("--limit", type=int, default=None, help="Maximum number of sessions to return")
 
-    detail = sub.add_parser("session", help="Detail for one session")
-    detail.add_argument("session_id", nargs="?", default=None)
-    detail.add_argument("--latest", action="store_true")
-    detail.add_argument("--project", default=None)
+    detail = sub.add_parser("session", help="Full detail for a single session")
+    detail.add_argument("session_id", nargs="?", default=None, help="Session UUID")
+    detail.add_argument("--latest", action="store_true", help="Use the most recently active session")
+    detail.add_argument("--project", default=None, help="Project slug")
 
-    stats_p = sub.add_parser("stats", help="Aggregate stats for a project")
-    stats_p.add_argument("--project", default=None)
+    stats_p = sub.add_parser("stats", help="Aggregate token, cost, and tool stats across all sessions in a project")
+    stats_p.add_argument("--project", default=None, help="Project slug")
 
-    search_p = sub.add_parser("search", help="Search sessions by title or first message")
-    search_p.add_argument("query")
-    search_p.add_argument("--project", default=None)
+    search_p = sub.add_parser("search", help="Search sessions by title or opening message")
+    search_p.add_argument("query", help="Search term (case-insensitive substring match)")
+    search_p.add_argument("--project", default=None, help="Project slug")
 
     args = parser.parse_args()
     slug = getattr(args, "project", None) or current_project_slug()
