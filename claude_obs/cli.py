@@ -1,6 +1,9 @@
 import argparse
 import json
+import subprocess
+import sys
 import textwrap
+from pathlib import Path
 
 from .core import (
     aggregate_stats,
@@ -41,6 +44,7 @@ def main():
         description="Claude Code session observability — inspect token usage, costs, and tool patterns",
     )
     parser.add_argument("--output", choices=["json", "table"], default="json", help="Output format (default: json)")
+    parser.add_argument("--webapp", action="store_true", help="Launch Streamlit dashboard")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("projects", help="List all Claude Code projects with session counts and last activity")
@@ -61,6 +65,13 @@ def main():
     search_p = sub.add_parser("search", help="Search sessions by title or opening message")
     search_p.add_argument("query", help="Search term (case-insensitive substring match)")
     search_p.add_argument("--project", default=None, help="Project slug")
+
+    args, _ = parser.parse_known_args()
+
+    if getattr(args, "webapp", False):
+        webapp_path = Path(__file__).parent / "webapp.py"
+        subprocess.run([sys.executable, "-m", "streamlit", "run", str(webapp_path)])
+        return
 
     args = parser.parse_args()
     slug = getattr(args, "project", None) or current_project_slug()

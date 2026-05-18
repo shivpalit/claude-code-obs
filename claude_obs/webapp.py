@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from .core import aggregate_stats, list_projects, list_sessions
+from .core import aggregate_stats, get_session, list_projects, list_sessions
 
 st.set_page_config(page_title="claude-obs", page_icon="🔭", layout="wide")
 
@@ -29,7 +29,7 @@ col4.metric("Duration", f"{stats['total_duration_mins']:.0f} min")
 
 st.divider()
 
-# --- Token/cost chart by session ---
+# --- Cost per session chart ---
 st.subheader("Cost per session")
 df = pd.DataFrame([
     {
@@ -45,7 +45,7 @@ if not df.empty:
 
 st.divider()
 
-# --- Tool usage breakdown ---
+# --- Tool usage ---
 st.subheader("Tool usage")
 tools = stats.get("tools_used", {})
 if tools:
@@ -54,8 +54,26 @@ if tools:
 
 st.divider()
 
-# --- Sessions table ---
+# --- Sessions table + detail ---
 st.subheader(f"Sessions ({len(sessions)})")
+
+session_labels = {s["session_id"]: (s.get("title") or s["session_id"][:8]) for s in sessions}
+chosen_id = st.selectbox("View session detail", options=["—"] + list(session_labels.keys()), format_func=lambda x: session_labels.get(x, x))
+
+if chosen_id and chosen_id != "—":
+    detail = get_session(selected, chosen_id)
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Duration", f"{detail.get('duration_mins') or 0} min")
+    d2.metric("Tool calls", detail.get("tool_calls") or 0)
+    d3.metric("Est. cost", f"${detail.get('estimated_cost_usd') or 0:.4f}")
+    d4.metric("Messages", f"{detail.get('user_messages', 0)}u / {detail.get('assistant_messages', 0)}a")
+    with st.expander("Tokens"):
+        st.json(detail.get("tokens", {}))
+    with st.expander("Tools used"):
+        st.json(detail.get("tools_used", {}))
+
+st.divider()
+
 rows = [
     {
         "Title": s.get("title") or "—",
