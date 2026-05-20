@@ -15,7 +15,8 @@ if not project_options:
     st.error("No Claude Code projects found in ~/.claude/projects/")
     st.stop()
 
-selected = st.selectbox("Project", options=project_options)
+project_labels = {p["slug"]: f"{p['slug']}  ({p['session_count']} sessions)" for p in projects}
+selected = st.selectbox("Project", options=project_options, format_func=lambda s: project_labels.get(s, s))
 
 sessions = list_sessions(selected)
 stats = aggregate_stats(selected)
@@ -81,7 +82,16 @@ rows = [
         "Duration (min)": s.get("duration_mins") or 0,
         "Tool calls": s.get("tool_calls") or 0,
         "Est. cost ($)": s.get("estimated_cost_usd") or 0,
+        "Model": s.get("model") or "—",
     }
     for s in sessions
 ]
-st.dataframe(rows, width="stretch", hide_index=True)
+st.dataframe(
+    rows,
+    width="stretch",
+    hide_index=True,
+    column_config={
+        "Est. cost ($)": st.column_config.NumberColumn(format="$%.4f"),
+        "Duration (min)": st.column_config.NumberColumn(format="%.1f"),
+    },
+)
