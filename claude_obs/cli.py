@@ -1,5 +1,6 @@
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -66,6 +67,8 @@ def main():
     search_p.add_argument("query", help="Search term (case-insensitive substring match)")
     search_p.add_argument("--project", default=None, help="Project slug")
 
+    sub.add_parser("install-skill", help="Install the claude-obs skill to ~/.claude/skills/claude-obs/")
+
     args, _ = parser.parse_known_args()
 
     if getattr(args, "webapp", False):
@@ -103,6 +106,13 @@ def main():
     elif args.command == "search":
         data = find_sessions(slug, args.query)
         _output(data, fmt, cols=["session_id", "title", "started_at", "estimated_cost_usd"])
+
+    elif args.command == "install-skill":
+        src = Path(__file__).parent / "skills" / "SKILL.md"
+        dest_dir = Path.home() / ".claude" / "skills" / "claude-obs"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dest_dir / "SKILL.md")
+        print(f"Skill installed to {dest_dir / 'SKILL.md'}")
 
 
 if __name__ == "__main__":
