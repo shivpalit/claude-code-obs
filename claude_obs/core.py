@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from collections import defaultdict
@@ -7,12 +8,63 @@ from pathlib import Path
 CLAUDE_DIR = Path("/root/.claude")
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 
-COST_PER_1M = {
-    "input": 3.00,
-    "output": 15.00,
-    "cache_read": 0.30,
-    "cache_creation": 3.75,
+# Hardcoded fallback — source: https://platform.claude.com/docs/en/about-claude/pricing
+_PRICING_FALLBACK = {
+    "claude-opus-4-8":   {"input": 5.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.0, "cache_read": 0.50, "output": 25.0},
+    "claude-opus-4-7":   {"input": 5.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.0, "cache_read": 0.50, "output": 25.0},
+    "claude-opus-4-6":   {"input": 5.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.0, "cache_read": 0.50, "output": 25.0},
+    "claude-opus-4-5":   {"input": 5.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.0, "cache_read": 0.50, "output": 25.0},
+    "claude-opus-4-1":   {"input": 15.0, "cache_write_5m": 18.75, "cache_write_1h": 30.0, "cache_read": 1.50, "output": 75.0},
+    "claude-opus-4":     {"input": 15.0, "cache_write_5m": 18.75, "cache_write_1h": 30.0, "cache_read": 1.50, "output": 75.0},
+    "claude-sonnet-4-6": {"input": 3.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.0,  "cache_read": 0.30, "output": 15.0},
+    "claude-sonnet-4-5": {"input": 3.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.0,  "cache_read": 0.30, "output": 15.0},
+    "claude-sonnet-4":   {"input": 3.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.0,  "cache_read": 0.30, "output": 15.0},
+    "claude-haiku-4-5":  {"input": 1.00, "cache_write_5m": 1.25,  "cache_write_1h": 2.0,  "cache_read": 0.10, "output": 5.0},
+    "claude-haiku-3-5":  {"input": 0.80, "cache_write_5m": 1.00,  "cache_write_1h": 1.6,  "cache_read": 0.08, "output": 4.0},
+    "_default":          {"input": 3.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.0,  "cache_read": 0.30, "output": 15.0},
 }
+
+
+def _model_name_to_id(name: str) -> str:
+    name = name.split("(")[0].strip().lower()
+    return name.replace(" ", "-").replace(".", "-")
+
+
+def _fetch_pricing() -> dict:
+    import requests
+    from bs4 import BeautifulSoup
+    import pandas as pd
+
+    r = requests.get("https://platform.claude.com/docs/en/about-claude/pricing", timeout=5)
+    soup = BeautifulSoup(r.text, "html.parser")
+    tables = [pd.read_html(io.StringIO(str(t)))[0] for t in soup.find_all("table")]
+    df = tables[0]
+    df.columns = ["model", "input", "cache_write_5m", "cache_write_1h", "cache_read", "output"]
+
+    pricing = {}
+    for _, row in df.iterrows():
+        model_id = _model_name_to_id(str(row["model"]))
+        def parse_price(val):
+            return float(str(val).replace("$", "").replace("/ MTok", "").replace("/MTok", "").strip())
+        pricing[model_id] = {
+            "input":          parse_price(row["input"]),
+            "cache_write_5m": parse_price(row["cache_write_5m"]),
+            "cache_write_1h": parse_price(row["cache_write_1h"]),
+            "cache_read":     parse_price(row["cache_read"]),
+            "output":         parse_price(row["output"]),
+        }
+    pricing["_default"] = pricing.get("claude-sonnet-4-6", _PRICING_FALLBACK["_default"])
+    return pricing
+
+
+def _load_pricing() -> dict:
+    try:
+        return _fetch_pricing()
+    except Exception:
+        return _PRICING_FALLBACK
+
+
+PRICING = _load_pricing()
 
 
 def slug_to_path(slug: str) -> str:
@@ -32,12 +84,13 @@ def parse_ts(ts: str) -> datetime | None:
         return None
 
 
-def _calc_cost(tokens: dict) -> float:
+def _calc_cost(tokens: dict, model: str | None = None) -> float:
+    rates = PRICING.get(model or "", PRICING["_default"])
     return round(
-        tokens["input"] / 1e6 * COST_PER_1M["input"]
-        + tokens["output"] / 1e6 * COST_PER_1M["output"]
-        + tokens["cache_read"] / 1e6 * COST_PER_1M["cache_read"]
-        + tokens["cache_creation"] / 1e6 * COST_PER_1M["cache_creation"],
+        tokens["input"] / 1e6 * rates["input"]
+        + tokens["output"] / 1e6 * rates["output"]
+        + tokens["cache_read"] / 1e6 * rates["cache_read"]
+        + tokens["cache_creation"] / 1e6 * rates["cache_write_5m"],
         4,
     )
 
@@ -138,8 +191,24 @@ def _read_session_summary(path: Path) -> dict:
         "tool_calls": sum(tool_counts.values()),
         "tools_used": dict(sorted(tool_counts.items(), key=lambda x: -x[1])),
         "tokens": tokens,
-        "estimated_cost_usd": _calc_cost(tokens),
+        "estimated_cost_usd": _calc_cost(tokens, model),
     }
+
+
+def _read_project_cwd(session_files: list[Path]) -> str | None:
+    for f in session_files:
+        try:
+            with open(f) as fh:
+                for line in fh:
+                    try:
+                        obj = json.loads(line)
+                        if obj.get("type") == "user" and obj.get("cwd"):
+                            return obj["cwd"]
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            continue
+    return None
 
 
 def list_projects() -> list[dict]:
@@ -149,9 +218,10 @@ def list_projects() -> list[dict]:
             continue
         sessions = list(entry.glob("*.jsonl"))
         latest_mtime = max((s.stat().st_mtime for s in sessions), default=0)
+        cwd = _read_project_cwd(sessions)
         projects.append({
             "slug": entry.name,
-            "path": slug_to_path(entry.name),
+            "path": cwd or slug_to_path(entry.name),
             "session_count": len(sessions),
             "last_active": datetime.fromtimestamp(latest_mtime).isoformat() if latest_mtime else None,
         })

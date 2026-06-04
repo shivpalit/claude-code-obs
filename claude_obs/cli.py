@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from datetime import datetime, timezone
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from .core import (
@@ -43,10 +45,123 @@ def _add_output(p):
     p.add_argument("--output", choices=["json", "table"], default="json", help="Output format (default: json)")
 
 
+def _generate_skill_md(python_path: str) -> str:
+    cmd = str(Path(python_path).parent / "claude-obs")
+    return f"""# claude-obs
+
+Claude Code session observability — inspect token usage, costs, tool patterns, and session history.
+
+**CLI:** `{cmd}`
+
+## Commands
+
+**List projects**
+```
+{cmd} projects
+{cmd} projects --output table
+```
+
+**List sessions**
+```
+{cmd} sessions --project=-home-myproject --output table --limit 10
+{cmd} sessions --project=-home-myproject --sort created
+```
+
+**Session detail**
+```
+{cmd} session --latest --project=-home-myproject
+{cmd} session <session-uuid> --project=-home-myproject
+```
+
+**Aggregate stats**
+```
+{cmd} stats --project=-home-myproject
+```
+
+**Search sessions**
+```
+{cmd} search "keyword" --project=-home-myproject
+```
+
+## Finding your project slug
+
+Run `{cmd} projects` to list all slugs. Use `--project=<slug>` (with `=`) when the slug starts with `-`.
+
+## Cost estimates
+
+Estimated using live Anthropic pricing (falls back to hardcoded rates). Useful as a relative measure — not actual billing.
+"""
+
+
+def _install_skill():
+    try:
+        current_version = pkg_version("claude-code-obs")
+    except Exception:
+        current_version = "unknown"
+
+    python_path = sys.executable
+
+    # --- Ask global or project ---
+    cwd = Path.cwd()
+    project_claude_dir = cwd / ".claude"
+    has_project = project_claude_dir.exists()
+
+    if has_project:
+        print(f"Claude project detected: {cwd}")
+        print("  [1] Global  (~/.claude/skills/claude-obs/)  [default]")
+        print(f"  [2] Project ({cwd}/.claude/skills/claude-obs/)")
+        choice = input("Choice [1/2, Enter=global]: ").strip()
+    else:
+        print("No .claude/ folder found in current directory — installing globally.")
+        choice = "1"
+
+    if choice == "2":
+        dest_dir = project_claude_dir / "skills" / "claude-obs"
+    else:
+        dest_dir = Path.home() / ".claude" / "skills" / "claude-obs"
+
+    print(f"\nTarget: {dest_dir}")
+
+    # --- Check existing install ---
+    paths_file = dest_dir / "paths.json"
+    if paths_file.exists():
+        try:
+            existing = json.loads(paths_file.read_text())
+            print("\nExisting install found:")
+            print(f"  version : {existing.get('version', 'unknown')}")
+            print(f"  python  : {existing.get('python', 'unknown')}")
+            if existing.get("version") != current_version:
+                print(f"  ⚠ Version mismatch (installed: {existing.get('version')}, current: {current_version})")
+            if existing.get("python") != python_path:
+                print(f"  ⚠ Python path differs — skill will point to a different environment")
+            overwrite = input("\nOverwrite? [y/N]: ").strip().lower()
+            if overwrite != "y":
+                print("Aborted.")
+                return
+        except Exception:
+            pass
+
+    # --- Write ---
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    paths_data = {
+        "version": current_version,
+        "python": python_path,
+        "installed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    paths_file.write_text(json.dumps(paths_data, indent=2))
+    (dest_dir / "SKILL.md").write_text(_generate_skill_md(python_path))
+    print(f"\nSkill installed to {dest_dir}")
+    print(f"  SKILL.md  — uses {python_path}")
+    print(f"  paths.json — version {current_version}")
+
+
 def main():
     if "--webapp" in sys.argv:
-        webapp_path = Path(__file__).parent / "webapp.py"
-        subprocess.run([sys.executable, "-m", "streamlit", "run", str(webapp_path)])
+        pkg_dir = Path(__file__).parent
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", str(pkg_dir / "webapp.py")],
+            cwd=pkg_dir,
+        )
         return
 
     parser = argparse.ArgumentParser(
@@ -114,11 +229,7 @@ def main():
         _output(data, fmt, cols=["session_id", "title", "started_at", "estimated_cost_usd"])
 
     elif args.command == "install-skill":
-        src = Path(__file__).parent / "skills" / "SKILL.md"
-        dest_dir = Path.home() / ".claude" / "skills" / "claude-obs"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(src, dest_dir / "SKILL.md")
-        print(f"Skill installed to {dest_dir / 'SKILL.md'}")
+        _install_skill()
 
 
 if __name__ == "__main__":
