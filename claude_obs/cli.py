@@ -39,6 +39,10 @@ def _output(data, fmt: str, cols: list[str] | None = None):
             print(json.dumps(data, indent=2))
 
 
+def _add_output(p):
+    p.add_argument("--output", choices=["json", "table"], default="json", help="Output format (default: json)")
+
+
 def main():
     if "--webapp" in sys.argv:
         webapp_path = Path(__file__).parent / "webapp.py"
@@ -49,34 +53,38 @@ def main():
         prog="claude-obs",
         description="Claude Code session observability — inspect token usage, costs, and tool patterns",
     )
-    parser.add_argument("--output", choices=["json", "table"], default="json", help="Output format (default: json)")
     parser.add_argument("--webapp", action="store_true", help="Launch Streamlit dashboard")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("projects", help="List all Claude Code projects with session counts and last activity")
+    proj_p = sub.add_parser("projects", help="List all Claude Code projects with session counts and last activity")
+    _add_output(proj_p)
 
     sess = sub.add_parser("sessions", help="List sessions for a project")
     sess.add_argument("--project", default=None, help="Project slug (use --project=<slug> if slug starts with -)")
     sess.add_argument("--sort", choices=["created", "last_message"], default="last_message", help="Sort order (default: last_message)")
     sess.add_argument("--limit", type=int, default=None, help="Maximum number of sessions to return")
+    _add_output(sess)
 
     detail = sub.add_parser("session", help="Full detail for a single session")
     detail.add_argument("session_id", nargs="?", default=None, help="Session UUID")
     detail.add_argument("--latest", action="store_true", help="Use the most recently active session")
     detail.add_argument("--project", default=None, help="Project slug")
+    _add_output(detail)
 
     stats_p = sub.add_parser("stats", help="Aggregate token, cost, and tool stats across all sessions in a project")
     stats_p.add_argument("--project", default=None, help="Project slug")
+    _add_output(stats_p)
 
     search_p = sub.add_parser("search", help="Search sessions by title or opening message")
     search_p.add_argument("query", help="Search term (case-insensitive substring match)")
     search_p.add_argument("--project", default=None, help="Project slug")
+    _add_output(search_p)
 
     sub.add_parser("install-skill", help="Install the claude-obs skill to ~/.claude/skills/claude-obs/")
 
     args = parser.parse_args()
     slug = getattr(args, "project", None) or current_project_slug()
-    fmt = args.output
+    fmt = getattr(args, "output", "json")
 
     if args.command == "projects":
         data = list_projects()
