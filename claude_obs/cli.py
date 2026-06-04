@@ -40,6 +40,11 @@ def _output(data, fmt: str, cols: list[str] | None = None):
 
 
 def main():
+    if "--webapp" in sys.argv:
+        webapp_path = Path(__file__).parent / "webapp.py"
+        subprocess.run([sys.executable, "-m", "streamlit", "run", str(webapp_path)])
+        return
+
     parser = argparse.ArgumentParser(
         prog="claude-obs",
         description="Claude Code session observability — inspect token usage, costs, and tool patterns",
@@ -68,13 +73,6 @@ def main():
     search_p.add_argument("--project", default=None, help="Project slug")
 
     sub.add_parser("install-skill", help="Install the claude-obs skill to ~/.claude/skills/claude-obs/")
-
-    args, _ = parser.parse_known_args()
-
-    if getattr(args, "webapp", False):
-        webapp_path = Path(__file__).parent / "webapp.py"
-        subprocess.run([sys.executable, "-m", "streamlit", "run", str(webapp_path)])
-        return
 
     args = parser.parse_args()
     slug = getattr(args, "project", None) or current_project_slug()
