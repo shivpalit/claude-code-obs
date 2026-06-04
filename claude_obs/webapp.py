@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from .core import aggregate_stats, get_session, list_projects, list_sessions
+from claude_obs.core import aggregate_stats, get_session, list_projects, list_sessions
 
 st.set_page_config(page_title="claude-obs", page_icon="🔭", layout="wide")
 
